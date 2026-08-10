@@ -1,5 +1,4 @@
-// src/queue.js — Offline navbat: internet yo'q bo'lsa hisobot saqlanadi,
-// internet kelganda avtomatik yuboriladi
+// src/queue.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { post } from './api';
@@ -28,21 +27,22 @@ export async function navbatniYubor(onProgress) {
       const net = await NetInfo.fetch();
       if (!net.isConnected) break;
       try {
-        const res = await post('hisobot', navbat[0]);
+        const item = navbat[0];
+        const action = item.action; // 'hisobotBoshla', 'hisobotDavom', 'hisobotYakun'
+        const res = await post(action, item);
+        
         if (res.ok || res.flag) {
-          // Muvaffaqiyatli yoki server rad etgan (takror rasm) — navbatdan chiqadi
           navbat.shift();
           yuborildi++;
           await AsyncStorage.setItem(KEY, JSON.stringify(navbat));
           onProgress && onProgress(yuborildi, navbat.length);
-        } else break; // server xatosi — keyinroq urinamiz
-      } catch (e) { break; } // tarmoq xatosi
+        } else break; 
+      } catch (e) { break; } 
     }
     return { yuborildi, qoldi: navbat.length };
   } finally { yuborilmoqda = false; }
 }
 
-// Internet paydo bo'lganda avtomatik yuborish
 export function avtoSyncYoq(onProgress) {
   return NetInfo.addEventListener(state => {
     if (state.isConnected) navbatniYubor(onProgress);
