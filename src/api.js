@@ -1,7 +1,6 @@
 // src/api.js
 import { API_URL } from './config';
 
-// Umumiy POST so'rov yuborish (REST API formatida)
 export async function post(endpoint, data) {
   try {
     const res = await fetch(`${API_URL}/${endpoint}`, {
@@ -22,7 +21,6 @@ export async function post(endpoint, data) {
   }
 }
 
-// Umumiy GET so'rov yuborish (REST API formatida)
 export async function get(endpoint, params = {}) {
   try {
     const q = new URLSearchParams(params).toString();
@@ -42,7 +40,7 @@ export async function get(endpoint, params = {}) {
   }
 }
 
-// Mobil ilova uchun maxsus funksiyalar (Yangi backend marshrutlariga moslangan)
+// Yangi REST API marshrutlariga moslangan funksiyalar
 export const login = (pinfl, parol, deviceId) => post('xodim-login', { pinfl, parol, deviceId });
 export const mfylarOl = () => get('mfylar');
 export const kategoriyalarOl = () => get('kategoriyalar');
