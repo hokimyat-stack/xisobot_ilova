@@ -1,78 +1,96 @@
-# .github/workflows/build-apk.yml
-name: APK Build
+name: APK qurish va chiqarish
+
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches: [ main, master ]
   workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   build:
+    name: APK qurish
     runs-on: ubuntu-latest
+
     steps:
       - name: Kodni olish
         uses: actions/checkout@v4
+
       - name: Node.js o'rnatish
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Java 17 o'rnatish
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Paketlarni o'rnatish
-        run: npm ci || npm install --legacy-peer-deps
-      - name: Android loyihani generatsiya qilish (prebuild)
-        run: npx expo prebuild --platform android --no-install
-
-      - name: Keystore'ni Secrets'dan tiklash
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/hisobot.keystore
+          npm install --legacy-peer-deps
 
-      - name: Imzolash sozlamalari
+      - name: Expo Prebuild (Android fayllarini yaratish)
         run: |
-          cat >> android/gradle.properties << EOF
-          MYAPP_UPLOAD_STORE_FILE=hisobot.keystore
-          MYAPP_UPLOAD_KEY_ALIAS=${{ secrets.KEY_ALIAS }}
-          MYAPP_UPLOAD_STORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}
-          MYAPP_UPLOAD_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
+          npx expo prebuild --platform android --no-install
+
+      - name: Vaqtinchalik Keystore yaratish va sozlash
+        run: |
+          cd android/app
+          keytool -genkeypair -v -keystore release.keystore -alias hisobot-key -keyalg RSA -keysize 2048 -validity 10000 -storepass hisobot123 -keypass hisobot123 -dname "CN=Hisobot, OU=SysOne, O=SysOne, L=Tashkent, C=UZ"
+          
+          cat >> ../gradle.properties << EOF
+          MYAPP_UPLOAD_STORE_FILE=release.keystore
+          MYAPP_UPLOAD_KEY_ALIAS=hisobot-key
+          MYAPP_UPLOAD_STORE_PASSWORD=hisobot123
+          MYAPP_UPLOAD_KEY_PASSWORD=hisobot123
           EOF
+
+      - name: Gradle imzolash sozlamasini ulash
+        run: |
           python3 - << 'PYEOF'
-          import re
           p = 'android/app/build.gradle'
-          g = open(p).read()
-          if 'signingConfigs {\n            release {' not in g:
-              g = g.replace("""signingConfigs {""", """signingConfigs {
-              release {
-                  storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                  storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                  keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                  keyPassword MYAPP_UPLOAD_KEY_PASSWORD
-              }""")
-          g = g.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
-          open(p, 'w').write(g)
+          with open(p, 'r') as f:
+              content = f.read()
+          
+          signing_code = """
+                  release {
+                      if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
+                          storeFile file(MYAPP_UPLOAD_STORE_FILE)
+                          storePassword MYAPP_UPLOAD_STORE_PASSWORD
+                          keyAlias MYAPP_UPLOAD_KEY_ALIAS
+                          keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+                      }
+                  }
+          """
+          if 'signingConfigs {' in content and 'release {' not in content:
+              content = content.replace('signingConfigs {', 'signingConfigs {' + signing_code)
+              content = content.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
+              with open(p, 'w') as f:
+                  f.write(content)
           PYEOF
 
-      - name: APK qurish
-        working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+      - name: APK yig'ish (Gradle build)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
 
       - name: APK nomini o'zgartirish
         run: |
-          VERSIYA=$(node -p "require('./package.json').version")
-          mkdir -p chiqish
-          cp android/app/build/outputs/apk/release/app-release.apk \
-             "chiqish/KunlikHisobot-v${VERSIYA}.apk"
-          echo "VERSIYA=$VERSIYA" >> $GITHUB_ENV
+          mkdir -p build_output
+          cp android/app/build/outputs/apk/release/app-release.apk build_output/Kunlik_Hisobot.apk
 
       - name: GitHub Release'ga chiqarish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSIYA }}-${{ github.run_number }}
-          name: Kunlik Hisobot v${{ env.VERSIYA }} (build ${{ github.run_number }})
-          files: chiqish/*.apk
-          body: |
-            📱 Kunlik Ish Hisoboti — Android APK
-            O'rnatish: APK'ni yuklab oling → ochib o'rnating
+          tag_name: v3.0.${{ github.run_number }}
+          name: "Kunlik Hisobot v3.0.${{ github.run_number }}"
+          body: "Yangi stabil versiya (Supabase + Cloudflare R2 integratsiyasi bilan)."
+          draft: false
+          prerelease: false
+          files: build_output/Kunlik_Hisobot.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
