@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Application from 'expo-application';
 import { login } from '../api';
 import { RANG, ILOVA_VERSIYA } from '../config';
+import { pushTokenRoyxatdanOtkaz } from '../utils/pushNotifications';
 
 export default function LoginScreen({ navigation }) {
   const [pinfl, setPinfl] = useState('');
@@ -20,6 +21,8 @@ export default function LoginScreen({ navigation }) {
       const res = await login(pinfl, parol, deviceId);
       if (res.ok) {
         await AsyncStorage.setItem('XODIM', JSON.stringify({ ...res.xodim, deviceId }));
+        // Push tokenni ro'yxatdan o'tkazish — ixtiyoriy (best-effort), navigatsiyani kutdirmaydi
+        pushTokenRoyxatdanOtkaz(res.xodim.id);
         navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
       } else {
         Alert.alert('Kirish rad etildi', res.xato);
