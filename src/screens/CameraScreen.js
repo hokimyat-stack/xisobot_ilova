@@ -46,10 +46,10 @@ export default function CameraScreen({ navigation, route }) {
     try {
       // 1) Watermark bosilgan ko'rinishni rasmga aylantirish
       const wmUri = await shotRef.current.capture();
-      // 2) Siqish: 1600px kenglik, 75% sifat (Drive joyini tejash)
+      // 2) Siqish: 1200px kenglik, 60% sifat (R2 ga tez yuklash va joyni tejash uchun)
       const siq = await ImageManipulator.manipulateAsync(wmUri,
-        [{ resize: { width: 1600 } }],
-        { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG });
+        [{ resize: { width: 1200 } }],
+        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG });
       // 3) Base64 o'qish — serverga yuborish uchun
       const b64 = await FileSystem.readAsStringAsync(siq.uri, { encoding: 'base64' });
       onRasm({ uri: siq.uri, b64 });
