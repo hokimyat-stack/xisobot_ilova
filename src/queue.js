@@ -28,7 +28,7 @@ export async function navbatniYubor(onProgress) {
       if (!net.isConnected) break;
       try {
         const item = navbat[0];
-        const action = item.action; // 'hisobotBoshla', 'hisobotDavom', 'hisobotYakun'
+        const action = item.action || 'hisobotBoshla'; // Mos bosqichga yuboradi
         const res = await post(action, item);
         
         if (res.ok || res.flag) {
