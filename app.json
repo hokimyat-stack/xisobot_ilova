@@ -29,7 +29,10 @@
     "plugins": [
       ["expo-camera", { "cameraPermission": "Hisobot uchun ish joyidan jonli surat olish kerak" }],
       ["expo-location", { "locationWhenInUsePermission": "Hisobotga ish joyi lokatsiyasi avtomatik yoziladi" }],
-      "expo-notifications"
+      ["expo-notifications", {
+        "icon": "./assets/icon.png",
+        "color": "#1758B8"
+      }]
     ]
   }
 }
