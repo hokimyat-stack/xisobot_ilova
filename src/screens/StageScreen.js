@@ -46,7 +46,7 @@ export default function StageScreen({ navigation, route }) {
     if (!gps) return Alert.alert('GPS', gpsXato || 'Lokatsiya hali aniqlanmadi');
 
     const payload = {
-      hisobotId: hisobot.id, xodimId: xodim.id,
+      hisobotId: hisobot.id, xodimId: xodim.id, deviceId: xodim.deviceId,
       tavsif: tavsif.trim(), lat: gps.lat, lng: gps.lng, mocked: gps.mocked,
       deviceVaqt: new Date().toISOString(), rasmlar: rasmlar.map(r => r.b64)
     };
