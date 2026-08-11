@@ -7,6 +7,7 @@ import { navbatOl, navbatniYubor } from '../queue';
 import { menikiOl } from '../api';
 import { RANG, ILOVA_VERSIYA } from '../config';
 import { yangilanishniTekshir, apkYukla } from '../utils/appUpdate';
+import { pushTokenRoyxatdanOtkaz } from '../utils/pushNotifications';
 
 export default function HomeScreen({ route, navigation }) {
   // App.js'dan kelgan theme parametrlari
@@ -27,6 +28,7 @@ export default function HomeScreen({ route, navigation }) {
     const x = JSON.parse(xRaw);
     setXodim(x);
     setNavbatSoni((await navbatOl()).length);
+    pushTokenRoyxatdanOtkaz(x.id); // Ixtiyoriy (best-effort) — login paytida muvaffaqiyatsiz bo'lgan bo'lsa, shu yerda qayta urinadi
     try {
       const res = await menikiOl(x.id);
       if (res.ok) {
