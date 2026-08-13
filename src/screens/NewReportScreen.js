@@ -1,4 +1,4 @@
-// src/screens/NewReportScreen.js — 1-BOSQICH: Ish boshlash
+// src/screens/NewReportScreen.js — Yangi hisobot boshlash (1 yoki 3 bosqichli)
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Image, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +16,9 @@ export default function NewReportScreen({ navigation }) {
   const [gps, setGps] = useState(null);
   const [gpsXato, setGpsXato] = useState('');
   const [yuborilmoqda, setYuborilmoqda] = useState(false);
+  
+  // DEFAULT HOLAT: 1 bosqichli (Tezkor) rejim
+  const [isBirBosqichli, setIsBirBosqichli] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -43,12 +46,14 @@ export default function NewReportScreen({ navigation }) {
     if (!gps) return Alert.alert('GPS', gpsXato || 'Lokatsiya hali aniqlanmadi');
     if (gps.mocked) Alert.alert('Diqqat', 'Qurilmangizda soxta GPS aniqlandi. Hisobot rad etiladi va qayd qilinadi.');
 
+    // isBirBosqichli parametridan foydalanamiz
     const hisobot = {
       xodimId: xodim.id, deviceId: xodim.deviceId,
       ishTuri: 'Umumiy', ishNomi: ishNomi.trim(), tavsif: tavsif.trim(),
       lat: gps.lat, lng: gps.lng, mocked: gps.mocked,
       deviceVaqt: new Date().toISOString(),
-      rasmlar: rasmlar.map(r => r.b64)
+      rasmlar: rasmlar.map(r => r.b64),
+      isBirBosqichli: isBirBosqichli 
     };
 
     setYuborilmoqda(true);
@@ -57,10 +62,13 @@ export default function NewReportScreen({ navigation }) {
       if (net.isConnected) {
         const res = await post('hisobotBoshla', hisobot);
         if (res.ok) {
-          Alert.alert('Boshlandi ✓',
-            "1-bosqich qabul qilindi. Ish davom etganida 'Davom etmoqda' bosqichini yuklashni unutmang." +
-            (res.flaglar?.length ? '\n\nEslatma: ' + res.flaglar.join('\n') : ''),
-            [{ text: 'OK', onPress: () => navigation.goBack() }]);
+          Alert.alert(
+            isBirBosqichli ? 'Yakunlandi ✓' : 'Boshlandi ✓',
+            isBirBosqichli 
+              ? "Hisobot muvaffaqiyatli yuborildi va to'liq yopildi." + (res.flaglar?.length ? '\n\nEslatma: ' + res.flaglar.join('\n') : '')
+              : "1-bosqich qabul qilindi. Ish davom etganida 'Davom etmoqda' bosqichini yuklashni unutmang." + (res.flaglar?.length ? '\n\nEslatma: ' + res.flaglar.join('\n') : ''),
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
         } else Alert.alert('Rad etildi', res.xato);
       } else {
         await navbatgaQosh({ ...hisobot, action: 'hisobotBoshla' });
@@ -76,12 +84,30 @@ export default function NewReportScreen({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: RANG.fon }}>
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}><Text style={s.orqaga}>← Orqaga</Text></TouchableOpacity>
-        <Text style={s.title}>Yangi ish — 1-bosqich</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={s.orqaga}>← Orqaga</Text>
+        </TouchableOpacity>
+        <Text style={s.title}>{isBirBosqichli ? "Tezkor Hisobot" : "Yangi ish — 1-bosqich"}</Text>
         <View style={{ width: 60 }} />
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        
+        {/* REJIM TANLASH TUGMALARI */}
+        <View style={s.modeContainer}>
+          <TouchableOpacity 
+            style={[s.modeBtn, isBirBosqichli && s.modeBtnActive]} 
+            onPress={() => setIsBirBosqichli(true)}>
+            <Text style={[s.modeText, isBirBosqichli && s.modeTextActive]}>1 Bosqichli</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[s.modeBtn, !isBirBosqichli && s.modeBtnActive]} 
+            onPress={() => setIsBirBosqichli(false)}>
+            <Text style={[s.modeText, !isBirBosqichli && s.modeTextActive]}>3 Bosqichli</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={[s.gpsCard, { borderColor: gps ? (gps.mocked ? RANG.qizil : RANG.yashil) : RANG.sariq }]}>
           <Text style={{ fontWeight: '700', color: gps ? (gps.mocked ? RANG.qizil : RANG.yashil) : RANG.sariq }}>
             {gps ? (gps.mocked ? '⚠ Soxta GPS aniqlandi!' : '✓ Lokatsiya aniqlandi') : (gpsXato || 'GPS aniqlanmoqda...')}
@@ -92,9 +118,9 @@ export default function NewReportScreen({ navigation }) {
         <Text style={s.label}>Ish nomi *</Text>
         <TextInput style={s.input} value={ishNomi} onChangeText={setIshNomi} placeholder="Masalan: Markaziy ko'cha obodonlashtirish" />
 
-        <Text style={s.label}>Boshlanish tavsifi * (kamida 20 belgi)</Text>
+        <Text style={s.label}>{isBirBosqichli ? 'Ish tavsifi * (kamida 20 belgi)' : 'Boshlanish tavsifi * (kamida 20 belgi)'}</Text>
         <TextInput style={[s.input, { height: 110, textAlignVertical: 'top' }]} value={tavsif}
-          onChangeText={setTavsif} multiline placeholder="Ish qanday boshlandi, qayerda, nima rejalashtirilgan..." />
+          onChangeText={setTavsif} multiline placeholder="Qilingan ish haqida ma'lumot..." />
 
         <Text style={s.label}>Rasmlar * (1–5 ta, faqat kameradan)</Text>
         <View style={s.rasmQator}>
@@ -114,10 +140,23 @@ export default function NewReportScreen({ navigation }) {
           )}
         </View>
 
-        <TouchableOpacity style={[s.yuborBtn, yuborilmoqda && { opacity: 0.6 }]} onPress={yubor} disabled={yuborilmoqda}>
-          {yuborilmoqda ? <ActivityIndicator color="#fff" /> : <Text style={s.yuborText}>1-BOSQICHNI YUBORISH</Text>}
+        <TouchableOpacity 
+          style={[s.yuborBtn, yuborilmoqda && { opacity: 0.6 }]} 
+          onPress={yubor} 
+          disabled={yuborilmoqda}>
+          {yuborilmoqda ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={s.yuborText}>
+              {isBirBosqichli ? "HISOBOTNI YUBORISH" : "1-BOSQICHNI YUBORISH"}
+            </Text>
+          )}
         </TouchableOpacity>
-        <Text style={s.ogohlantirish}>Keyingi bosqichlarni "Bosh sahifa → Davom etayotgan ishlar" dan yuklaysiz</Text>
+        
+        {/* Agar 3 bosqichli bo'lsa ogohlantirish chiqadi */}
+        {!isBirBosqichli && (
+          <Text style={s.ogohlantirish}>Keyingi bosqichlarni "Bosh sahifa → Davom etayotgan ishlar" dan yuklaysiz</Text>
+        )}
       </ScrollView>
     </View>
   );
@@ -127,6 +166,38 @@ const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, paddingTop: 52, backgroundColor: RANG.oq, borderBottomWidth: 1, borderColor: RANG.chiziq },
   orqaga: { color: RANG.asosiy, fontSize: 15, fontWeight: '600', width: 70 },
   title: { fontSize: 16, fontWeight: '800', color: RANG.toq },
+  
+  // Rejim tanlash stillari
+  modeContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 16,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  modeBtnActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  modeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6B7286',
+  },
+  modeTextActive: {
+    color: RANG.asosiy,
+  },
+
   gpsCard: { backgroundColor: RANG.oq, borderRadius: 12, borderWidth: 1.5, padding: 13, marginBottom: 6 },
   gpsKoord: { color: RANG.kul, fontSize: 12, marginTop: 3 },
   label: { fontSize: 13, fontWeight: '700', color: RANG.toq, marginTop: 15, marginBottom: 6 },
