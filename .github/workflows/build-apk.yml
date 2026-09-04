@@ -41,6 +41,7 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "ANDROID_KEYSTORE_PASSWORD secret topilmadi"; exit 1; }
           test -n "$ANDROID_KEY_ALIAS" || { echo "ANDROID_KEY_ALIAS secret topilmadi"; exit 1; }
           test -n "$ANDROID_KEY_PASSWORD" || { echo "ANDROID_KEY_PASSWORD secret topilmadi"; exit 1; }
+          echo "Signing secretlar mavjud."
 
       - name: Paketlarni o'rnatish
         run: npm install --legacy-peer-deps
@@ -57,58 +58,168 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+
           keytool -list \
             -keystore android/app/release.keystore \
             -storepass "$ANDROID_KEYSTORE_PASSWORD" \
             -alias "$ANDROID_KEY_ALIAS" >/dev/null
 
+          cat >> android/gradle.properties <<EOF
+          MYAPP_UPLOAD_STORE_FILE=release.keystore
+          MYAPP_UPLOAD_KEY_ALIAS=$ANDROID_KEY_ALIAS
+          MYAPP_UPLOAD_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD
+          MYAPP_UPLOAD_KEY_PASSWORD=$ANDROID_KEY_PASSWORD
+          EOF
+
+          echo "Doimiy keystore tiklandi va tekshirildi."
+
       - name: Release signingConfig ulash
         shell: bash
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
 
-          # Expo/EAS usuliga o'xshash alohida Gradle signing skript.
-          # Bu generated build.gradle ichidagi nested bloklarni regex bilan qidirishni talab qilmaydi.
-          cat > android/app/xisobot-signing.gradle <<'EOF'
-          android {
-              signingConfigs {
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("android/app/build.gradle")
+          s = p.read_text(encoding="utf-8")
+
+          def find_block(text, marker, start=0):
+              m = re.search(marker, text[start:])
+              if not m:
+                  raise SystemExit(f"Blok topilmadi: {marker}")
+              marker_start = start + m.start()
+              open_brace = text.find("{", marker_start)
+              if open_brace < 0:
+                  raise SystemExit(f"Ochuvchi qavs topilmadi: {marker}")
+
+              depth = 0
+              quote = None
+              escape = False
+              line_comment = False
+              block_comment = False
+              i = open_brace
+
+              while i < len(text):
+                  ch = text[i]
+                  nx = text[i + 1] if i + 1 < len(text) else ""
+
+                  if line_comment:
+                      if ch == "\n":
+                          line_comment = False
+                      i += 1
+                      continue
+
+                  if block_comment:
+                      if ch == "*" and nx == "/":
+                          block_comment = False
+                          i += 2
+                      else:
+                          i += 1
+                      continue
+
+                  if quote:
+                      if escape:
+                          escape = False
+                      elif ch == "\\":
+                          escape = True
+                      elif ch == quote:
+                          quote = None
+                      i += 1
+                      continue
+
+                  if ch == "/" and nx == "/":
+                      line_comment = True
+                      i += 2
+                      continue
+
+                  if ch == "/" and nx == "*":
+                      block_comment = True
+                      i += 2
+                      continue
+
+                  if ch in ("'", '"'):
+                      quote = ch
+                      i += 1
+                      continue
+
+                  if ch == "{":
+                      depth += 1
+                  elif ch == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return marker_start, open_brace, i
+
+                  i += 1
+
+              raise SystemExit(f"Yopuvchi qavs topilmadi: {marker}")
+
+          if "MYAPP_UPLOAD_STORE_FILE" not in s:
+              _, signing_open, _ = find_block(s, r"\bsigningConfigs\s*\{")
+
+              release_config = '''
                   release {
-                      // Config tasks.whenTaskAdded ichida beriladi.
+                      if (project.hasProperty("MYAPP_UPLOAD_STORE_FILE")) {
+                          storeFile file(MYAPP_UPLOAD_STORE_FILE)
+                          storePassword MYAPP_UPLOAD_STORE_PASSWORD
+                          keyAlias MYAPP_UPLOAD_KEY_ALIAS
+                          keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+                      }
                   }
-              }
+          '''
 
-              buildTypes {
-                  release {
-                      // Release type mavjud bo'lmasa ham Gradle DSL uchun xavfsiz.
-                  }
-              }
-          }
+              s = s[:signing_open + 1] + release_config + s[signing_open + 1:]
 
-          tasks.whenTaskAdded {
-              android.signingConfigs.release {
-                  storeFile file("release.keystore")
-                  storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                  keyAlias System.getenv("ANDROID_KEY_ALIAS")
-                  keyPassword System.getenv("ANDROID_KEY_PASSWORD")
-              }
+          _, build_open, build_close = find_block(s, r"\bbuildTypes\s*\{")
 
-              android.buildTypes.release {
-                  signingConfig android.signingConfigs.release
-              }
-          }
-          EOF
+          rel_match = re.search(r"\brelease\s*\{", s[build_open + 1:build_close])
+          if not rel_match:
+              raise SystemExit("buildTypes ichida release bloki topilmadi")
 
-          # Prebuild har safar build.gradle yaratadi. Biz faqat oxiriga apply qo'shamiz.
-          if ! grep -Fq 'apply from: "./xisobot-signing.gradle"' android/app/build.gradle; then
-            printf '\napply from: "./xisobot-signing.gradle"\n' >> android/app/build.gradle
-          fi
+          rel_start = build_open + 1 + rel_match.start()
+          _, _, release_close = find_block(s, r"\brelease\s*\{", rel_start)
 
-          echo "Signing Gradle script ulandi."
+          release_block = s[rel_start:release_close + 1]
+
+          if "signingConfig signingConfigs.release" not in release_block:
+              if "signingConfig signingConfigs.debug" in release_block:
+                  release_block = release_block.replace(
+                      "signingConfig signingConfigs.debug",
+                      "signingConfig signingConfigs.release",
+                      1
+                  )
+              else:
+                  pos = release_block.find("{") + 1
+                  release_block = (
+                      release_block[:pos]
+                      + "\n            signingConfig signingConfigs.release"
+                      + release_block[pos:]
+                  )
+
+              s = s[:rel_start] + release_block + s[release_close + 1:]
+
+          p.write_text(s, encoding="utf-8")
+
+          final = p.read_text(encoding="utf-8")
+          if "MYAPP_UPLOAD_STORE_FILE" not in final:
+              raise SystemExit("release signingConfigs yozilmadi")
+          if "signingConfig signingConfigs.release" not in final:
+              raise SystemExit("buildTypes.release release signing'ga ulanmagan")
+
+          print("Release signingConfig build.gradle'ga muvaffaqiyatli ulandi.")
+          PY
+
+      - name: Gradle signing konfiguratsiyasini tekshirish
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "MYAPP_UPLOAD_STORE_FILE" android/app/build.gradle
+          grep -q "signingConfig signingConfigs.release" android/app/build.gradle
+          test -s android/app/release.keystore
+          echo "Gradle signing konfiguratsiyasi tayyor."
 
       - name: APK yig'ish
         run: |
@@ -120,7 +231,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=android/app/build/outputs/apk/release/app-release.apk
+          APK="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           ls -lh "$APK"
 
@@ -128,7 +239,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=android/app/build/outputs/apk/release/app-release.apk
+          APK="android/app/build/outputs/apk/release/app-release.apk"
           BUILD_TOOLS="$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
           "$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
 
