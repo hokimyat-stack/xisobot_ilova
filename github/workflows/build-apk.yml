@@ -1,0 +1,136 @@
+name: APK qurish va chiqarish
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: APK qurish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodni olish
+        uses: actions/checkout@v4
+
+      - name: Node.js o'rnatish
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Java 17 o'rnatish
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android signing secretlarini tekshirish
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "ANDROID_KEYSTORE_BASE64 secret topilmadi"; exit 1; }
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "ANDROID_KEYSTORE_PASSWORD secret topilmadi"; exit 1; }
+          test -n "$ANDROID_KEY_ALIAS" || { echo "ANDROID_KEY_ALIAS secret topilmadi"; exit 1; }
+          test -n "$ANDROID_KEY_PASSWORD" || { echo "ANDROID_KEY_PASSWORD secret topilmadi"; exit 1; }
+
+      - name: Paketlarni o'rnatish
+        run: npm install --legacy-peer-deps
+
+      - name: Expo Prebuild
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Doimiy Android keystore'ni tiklash
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+          keytool -list -keystore android/app/release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+
+          cat >> android/gradle.properties <<EOF
+          MYAPP_UPLOAD_STORE_FILE=release.keystore
+          MYAPP_UPLOAD_KEY_ALIAS=$ANDROID_KEY_ALIAS
+          MYAPP_UPLOAD_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD
+          MYAPP_UPLOAD_KEY_PASSWORD=$ANDROID_KEY_PASSWORD
+          EOF
+
+      - name: Release signingConfig ulash
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle')
+          s = p.read_text()
+
+          # Expo/React Native generated build.gradle'dagi signingConfigs blokiga release config qo'shamiz.
+          if 'signingConfigs {' not in s:
+              raise SystemExit('signingConfigs bloki topilmadi')
+
+          if 'MYAPP_UPLOAD_STORE_FILE' not in s:
+              marker = 'signingConfigs {'
+              release = '''signingConfigs {\n        release {\n            if (project.hasProperty("MYAPP_UPLOAD_STORE_FILE")) {\n                storeFile file(MYAPP_UPLOAD_STORE_FILE)\n                storePassword MYAPP_UPLOAD_STORE_PASSWORD\n                keyAlias MYAPP_UPLOAD_KEY_ALIAS\n                keyPassword MYAPP_UPLOAD_KEY_PASSWORD\n            }\n        }'''
+              s = s.replace(marker, release, 1)
+
+          # release build faqat doimiy release key bilan imzolanadi.
+          import re
+          release_block = re.search(r'buildTypes\\s*\\{[\\s\\S]*?release\\s*\\{[\\s\\S]*?\\n\\s*\\}', s)
+          if not release_block:
+              raise SystemExit('buildTypes.release bloki topilmadi')
+
+          block = release_block.group(0)
+          if 'signingConfig signingConfigs.release' not in block:
+              if 'signingConfig signingConfigs.debug' in block:
+                  new_block = block.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
+              else:
+                  new_block = block.replace('release {', 'release {\n            signingConfig signingConfigs.release', 1)
+              s = s[:release_block.start()] + new_block + s[release_block.end():]
+
+          p.write_text(s)
+          PY
+
+      - name: APK yig'ish
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: APK imzosini tekshirish
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          $ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner verify --verbose --print-certs "$APK"
+
+      - name: APK nomini o'zgartirish
+        run: |
+          mkdir -p build_output
+          cp android/app/build/outputs/apk/release/app-release.apk build_output/Kunlik_Hisobot_V4.apk
+
+      - name: GitHub Release'ga chiqarish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v4.0.${{ github.run_number }}
+          name: "Kunlik Hisobot v4.0.${{ github.run_number }}"
+          body: "Xisobot Mobile V4 — Vazifalar markazi. APK doimiy Android release key bilan imzolangan."
+          draft: false
+          prerelease: false
+          files: build_output/Kunlik_Hisobot_V4.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

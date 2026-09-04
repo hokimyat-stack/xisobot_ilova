@@ -1,6 +1,6 @@
-// App.js
+// App.js — Xisobot Mobile V4
 import React, { useEffect, useRef, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
@@ -13,11 +13,22 @@ import CameraScreen from './src/screens/CameraScreen';
 import MyReportsScreen from './src/screens/MyReportsScreen';
 import PasswordChangeScreen from './src/screens/PasswordChangeScreen';
 import StageScreen from './src/screens/StageScreen';
+import TasksScreen from './src/screens/TasksScreen';
+import TaskDetailScreen from './src/screens/TaskDetailScreen';
 import { avtoSyncYoq } from './src/queue';
 import { tahrirBildirishnomasimi } from './src/utils/pushNotifications';
 import { oxirgiJavobniSaqla } from './src/utils/tahrirKesh';
 
 const Stack = createNativeStackNavigator();
+const navigationRef = createNavigationContainerRef();
+
+function pushdanOch(data = {}) {
+  if (!navigationRef.isReady()) return;
+  if (data?.turi === 'vazifa') {
+    if (data?.vazifaId) navigationRef.navigate('TaskDetail', { vazifaId: data.vazifaId });
+    else navigationRef.navigate('Tasks');
+  }
+}
 
 export default function App() {
   const [boshlangichSahifa, setBoshlangichSahifa] = useState(null);
@@ -25,7 +36,6 @@ export default function App() {
   const bildirishnomaListener = useRef(null);
 
   useEffect(() => {
-    // Ilova ochilishi bilan internet kelganda offline hisobotlarni avtomatik yuborishni yoqamiz
     const unsubscribe = avtoSyncYoq();
 
     (async () => {
@@ -33,23 +43,22 @@ export default function App() {
       setBoshlangichSahifa(xodim ? 'Home' : 'Login');
     })();
 
-    // Ilova ochiq turgan paytda (foreground) kelgan bildirishnomani ushlab, agar u
-    // tahrir so'roviga tegishli bo'lsa — mahalliy keshga yozamiz, MyReportsScreen
-    // buni banner sifatida ko'rsatadi. Ilova yopiq/fonda bo'lsa, OS o'zi bildirishnoma
-    // ko'rsatadi (Expo Push orqali) — bu holatda ham foydalanuvchi ilovani ochganda
-    // shu listener ishlaydi (aslida "response received" tomonidan).
     bildirishnomaListener.current = Notifications.addNotificationReceivedListener(async (bildirishnoma) => {
       const { title, body } = bildirishnoma.request.content;
-      if (tahrirBildirishnomasimi(title || '')) {
-        await oxirgiJavobniSaqla(title, body);
-      }
+      if (tahrirBildirishnomasimi(title || '')) await oxirgiJavobniSaqla(title, body);
     });
+
     const javobListener = Notifications.addNotificationResponseReceivedListener(async (javob) => {
-      const { title, body } = javob.notification.request.content;
-      if (tahrirBildirishnomasimi(title || '')) {
-        await oxirgiJavobniSaqla(title, body);
-      }
+      const { title, body, data } = javob.notification.request.content;
+      if (tahrirBildirishnomasimi(title || '')) await oxirgiJavobniSaqla(title, body);
+      setTimeout(() => pushdanOch(data || {}), 150);
     });
+
+    Notifications.getLastNotificationResponseAsync().then(javob => {
+      if (javob?.notification?.request?.content?.data) {
+        setTimeout(() => pushdanOch(javob.notification.request.content.data), 500);
+      }
+    }).catch(() => {});
 
     return () => {
       unsubscribe && unsubscribe();
@@ -63,7 +72,7 @@ export default function App() {
   if (!boshlangichSahifa) return null;
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
       <Stack.Navigator initialRouteName={boshlangichSahifa} screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
@@ -73,6 +82,8 @@ export default function App() {
         <Stack.Screen name="MyReports" component={MyReportsScreen} />
         <Stack.Screen name="PasswordChange" component={PasswordChangeScreen} />
         <Stack.Screen name="Stage" component={StageScreen} />
+        <Stack.Screen name="Tasks" component={TasksScreen} />
+        <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

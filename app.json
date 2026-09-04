@@ -2,14 +2,14 @@
   "expo": {
     "name": "Kunlik Hisobot",
     "slug": "kunlik-hisobot",
-    "version": "1.0.0",
+    "version": "4.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "backgroundColor": "#F6F8FB",
     "icon": "./assets/icon.png",
     "android": {
       "package": "uz.sysone.hisobot",
-      "versionCode": 1,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#F6F8FB"
@@ -27,12 +27,25 @@
       ]
     },
     "plugins": [
-      ["expo-camera", { "cameraPermission": "Hisobot uchun ish joyidan jonli surat olish kerak" }],
-      ["expo-location", { "locationWhenInUsePermission": "Hisobotga ish joyi lokatsiyasi avtomatik yoziladi" }],
-      ["expo-notifications", {
-        "icon": "./assets/icon.png",
-        "color": "#1758B8"
-      }]
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Hisobot uchun ish joyidan jonli surat olish kerak"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Hisobotga ish joyi lokatsiyasi avtomatik yoziladi"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1758B8"
+        }
+      ]
     ]
   }
 }
