@@ -58,65 +58,79 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
-          keytool -list -keystore android/app/release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
-
-          cat >> android/gradle.properties <<EOF
-          MYAPP_UPLOAD_STORE_FILE=release.keystore
-          MYAPP_UPLOAD_KEY_ALIAS=$ANDROID_KEY_ALIAS
-          MYAPP_UPLOAD_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD
-          MYAPP_UPLOAD_KEY_PASSWORD=$ANDROID_KEY_PASSWORD
-          EOF
+          keytool -list \
+            -keystore android/app/release.keystore \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
 
       - name: Release signingConfig ulash
         shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('android/app/build.gradle')
-          s = p.read_text()
+          set -euo pipefail
 
-          # Expo/React Native generated build.gradle'dagi signingConfigs blokiga release config qo'shamiz.
-          if 'signingConfigs {' not in s:
-              raise SystemExit('signingConfigs bloki topilmadi')
+          # Expo/EAS usuliga o'xshash alohida Gradle signing skript.
+          # Bu generated build.gradle ichidagi nested bloklarni regex bilan qidirishni talab qilmaydi.
+          cat > android/app/xisobot-signing.gradle <<'EOF'
+          android {
+              signingConfigs {
+                  release {
+                      // Config tasks.whenTaskAdded ichida beriladi.
+                  }
+              }
 
-          if 'MYAPP_UPLOAD_STORE_FILE' not in s:
-              marker = 'signingConfigs {'
-              release = '''signingConfigs {\n        release {\n            if (project.hasProperty("MYAPP_UPLOAD_STORE_FILE")) {\n                storeFile file(MYAPP_UPLOAD_STORE_FILE)\n                storePassword MYAPP_UPLOAD_STORE_PASSWORD\n                keyAlias MYAPP_UPLOAD_KEY_ALIAS\n                keyPassword MYAPP_UPLOAD_KEY_PASSWORD\n            }\n        }'''
-              s = s.replace(marker, release, 1)
+              buildTypes {
+                  release {
+                      // Release type mavjud bo'lmasa ham Gradle DSL uchun xavfsiz.
+                  }
+              }
+          }
 
-          # release build faqat doimiy release key bilan imzolanadi.
-          import re
-          release_block = re.search(r'buildTypes\\s*\\{[\\s\\S]*?release\\s*\\{[\\s\\S]*?\\n\\s*\\}', s)
-          if not release_block:
-              raise SystemExit('buildTypes.release bloki topilmadi')
+          tasks.whenTaskAdded {
+              android.signingConfigs.release {
+                  storeFile file("release.keystore")
+                  storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                  keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                  keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+              }
 
-          block = release_block.group(0)
-          if 'signingConfig signingConfigs.release' not in block:
-              if 'signingConfig signingConfigs.debug' in block:
-                  new_block = block.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
-              else:
-                  new_block = block.replace('release {', 'release {\n            signingConfig signingConfigs.release', 1)
-              s = s[:release_block.start()] + new_block + s[release_block.end():]
+              android.buildTypes.release {
+                  signingConfig android.signingConfigs.release
+              }
+          }
+          EOF
 
-          p.write_text(s)
-          PY
+          # Prebuild har safar build.gradle yaratadi. Biz faqat oxiriga apply qo'shamiz.
+          if ! grep -Fq 'apply from: "./xisobot-signing.gradle"' android/app/build.gradle; then
+            printf '\napply from: "./xisobot-signing.gradle"\n' >> android/app/build.gradle
+          fi
+
+          echo "Signing Gradle script ulandi."
 
       - name: APK yig'ish
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew :app:assembleRelease --no-daemon
 
-      - name: APK imzosini tekshirish
+      - name: APK mavjudligini tekshirish
         shell: bash
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           APK=android/app/build/outputs/apk/release/app-release.apk
           test -f "$APK"
-          $ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner verify --verbose --print-certs "$APK"
+          ls -lh "$APK"
+
+      - name: APK imzosini tekshirish
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          BUILD_TOOLS="$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
 
       - name: APK nomini o'zgartirish
         run: |
